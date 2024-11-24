@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VAD Test Page with Graph</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .status {
+      font-size: 1.5rem;
+      margin-top: 20px;
+      padding: 10px 20px;
+      border-radius: 10px;
+      display: inline-block;
+      color: #fff;
+    }
+    .active {
+      background-color: #28a745;
+    }
+    .silent {
+      background-color: #dc3545;
+    }
+    .threshold {
+      font-size: 1rem;
+      margin-top: 10px;
+      color: #333;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 1rem;
+      border: none;
+      border-radius: 5px;
+      background-color: #007bff;
+      color: white;
+      cursor: pointer;
+      margin-top: 20px;
+    }
+    button:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
+    #chartContainer {
+      max-width: 800px;
+      margin: 40px auto;
+    }
+    canvas {
+      max-width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <h1>Voice Activity Detection (VAD) Test</h1>
+  <p>Click the button below to start detecting voice activity:</p>
+  <button id="startBtn">Start Detection</button>
+  <p class="status silent" id="status">Silence</p>
+  <p class="threshold" id="threshold">Threshold: 0.01</p>
+  <div id="chartContainer">
+    <canvas id="vadChart"></canvas>
+  </div>
+
+  <script>
+    const startButton = document.getElementById('startBtn');
+    const statusDisplay = document.getElementById('status');
+    const thresholdDisplay = document.getElementById('threshold');
+    const vadChartCanvas = document.getElementById('vadChart');
+
+    let audioContext;
+    let analyser;
+    let microphone;
+    let scriptProcessor;
+    const VAD_THRESHOLD = 0.01;
+
+    let rmsValues = []; // Array to store RMS values for averaging
+
+    // Initialize Chart.js
+    const vadChart = new Chart(vadChartCanvas, {
+      type: 'line',
+      data: {
+        labels: [], // Time points
+        datasets: [
+          {
+            label: 'Average RMS (1s)',
+            data: [],
+            borderColor: 'rgba(75, 192, 192, 1)',
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            borderWidth: 1,
+            tension: 0.3,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: {
+            title: {
+              display: true,
+              text: 'Time',
+            },
+          },
+          y: {
+            title: {
+              display: true,
+              text: 'RMS Value',
+            },
+            min: 0,
+            max: 0.1,
+          },
+        },
+      },
+    });
+
+    function addAverageToChart() {
+      if (rmsValues.length === 0) return;
+
+      // Calculate average RMS
+      const averageRMS = rmsValues.reduce((sum, value) => sum + value, 0) / rmsValues.length;
+      rmsValues = []; // Reset for the next second
+
+      // Add average RMS to the chart
+      const currentTime = new Date().toLocaleTimeString();
+      if (vadChart.data.labels.length > 50) {
+        vadChart.data.labels.shift(); // Remove the oldest time point
+        vadChart.data.datasets[0].data.shift(); // Remove the oldest value
+      }
+
+      vadChart.data.labels.push(currentTime);
+      vadChart.data.datasets[0].data.push(averageRMS);
+
+      vadChart.update();
+    }
+
+    startButton.addEventListener('click', () => {
+      startButton.disabled = true;
+      statusDisplay.textContent = "Initializing...";
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          microphone = audioContext.createMediaStreamSource(stream);
+          analyser = audioContext.createAnalyser();
+          analyser.smoothingTimeConstant = 0.3;
+          analyser.fftSize = 1024;
+
+          const dataArray = new Float32Array(analyser.fftSize);
+
+          scriptProcessor = audioContext.createScriptProcessor(1024, 1, 1);
+          scriptProcessor.onaudioprocess = () => {
+            analyser.getFloatFrequencyData(dataArray);
+
+            let sum = 0.0;
+            for (let i = 0; i < dataArray.length; i++) {
+              sum += dataArray[i] * dataArray[i];
+            }
+            const rms = Math.sqrt(sum / dataArray.length);
+
+            // Add RMS to the temporary array
+            rmsValues.push(rms);
+
+            if (rms > VAD_THRESHOLD) {
+              statusDisplay.textContent = `Voice Detected (RMS: ${rms.toFixed(5)})`;
+              statusDisplay.className = 'status active';
+            } else {
+              statusDisplay.textContent = "Silence";
+              statusDisplay.className = 'status silent';
+            }
+          };
+
+          thresholdDisplay.textContent = `Threshold: ${VAD_THRESHOLD}`;
+
+          microphone.connect(analyser);
+          analyser.connect(scriptProcessor);
+          scriptProcessor.connect(audioContext.destination);
+
+          statusDisplay.textContent = "Listening...";
+          statusDisplay.className = 'status silent';
+
+          // Add average RMS to the chart every second
+          setInterval(addAverageToChart, 1000);
+        })
+        .catch(err => {
+          console.error('Error accessing microphone:', err);
+          statusDisplay.textContent = "Error accessing microphone";
+          statusDisplay.className = 'status silent';
+          startButton.disabled = false;
+        });
+    });
+  </script>
+</body>
+</html>

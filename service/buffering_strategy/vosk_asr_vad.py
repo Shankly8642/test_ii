@@ -24,7 +24,7 @@ class VoskAsrVad(BufferingStrategyInterface):
         self.activation_timeout_seconds = kwargs.get("activation_timeout_seconds", 60)
         self.silence_timeout_seconds = kwargs.get("silence_timeout_seconds", 1.5)
         self.activation_keywords = kwargs.get(
-            "activation_keywords", ["мульти", "мультиварка", "мультиварочка"]
+            "activation_keywords", ["мульти", "мультиварка", "мультик", "мультиварочка"]
         )
 
         self.recording = False
